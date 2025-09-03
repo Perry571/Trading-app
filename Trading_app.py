@@ -71,6 +71,13 @@ st.markdown("""
         background-color: #f59e0b20;
         border-left: 4px solid #f59e0b;
     }
+    .refresh-timer {
+        background-color: #0366d620;
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin: 10px 0;
+        text-align: center;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -214,8 +221,8 @@ with st.sidebar:
     # Data status
     st.markdown("---")
     st.subheader("Data Status")
-    st.markdown('<div class="data-status status-success">Using Alternative Data Sources</div>', unsafe_allow_html=True)
-    st.markdown('<div class="data-status status-success">No yfinance required</div>', unsafe_allow_html=True)
+    st.markdown('<div class="data-status status-success">Using Public APIs</div>', unsafe_allow_html=True)
+    st.markdown('<div class="data-status status-success">No API key required</div>', unsafe_allow_html=True)
     st.markdown('<div class="data-status status-warning">Some data may be delayed</div>', unsafe_allow_html=True)
 
 # Header
@@ -255,7 +262,7 @@ with col4:
 
 # Data status indicator
 if total_live_data == total_assets:
-    st.success("✅ All data is live from external sources")
+    st.success("✅ All data is live from external APIs")
 elif total_live_data > 0:
     st.warning(f"⚠️ {total_live_data}/{total_assets} assets using live data (some using demo data)")
 else:
@@ -388,15 +395,29 @@ st.markdown("---")
 st.markdown("<p style='text-align: center; color: #94a3b8;'>TradeVision - AI Powered Trading Platform © 2023</p>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #94a3b8;'>This is a demonstration interface. Actual trading involves financial risk.</p>", unsafe_allow_html=True)
 
-# Auto-refresh
-if st.button("Refresh Data"):
+# Auto-refresh button
+if st.button("🔄 Refresh Data Now"):
     st.rerun()
+
+# Automatic refresh every 60 seconds
+if 'last_refresh' not in st.session_state:
+    st.session_state.last_refresh = time.time()
+
+# Check if 60 seconds have passed since last refresh
+if time.time() - st.session_state.last_refresh > 60:
+    st.session_state.last_refresh = time.time()
+    st.rerun()
+
+# Display countdown timer
+seconds_until_refresh = 60 - (time.time() - st.session_state.last_refresh)
+st.sidebar.markdown(f'<div class="refresh-timer">⏱️ Auto-refresh in: {int(seconds_until_refresh)} seconds</div>', unsafe_allow_html=True)
 
 # Data source info
 st.sidebar.markdown("---")
 st.sidebar.info("""
 **Data Sources:** CoinGecko API + Financial Modeling Prep  
-**No yfinance required**  
+**No API Key Required**  
 **Rate Limits:** Minimal (free tiers)  
 **Data Delay:** Real-time or slight delay
+**Auto-Refresh:** Every 60 seconds
 """)
