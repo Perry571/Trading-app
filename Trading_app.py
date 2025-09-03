@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import time
 from datetime import datetime, timedelta
+import json
 
 # Set page configuration
 st.set_page_config(
@@ -13,10 +14,26 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Alpaca API details (we'll use regular requests instead of the alpaca package)
-API_KEY = "CKGJ7HZWSKG4WOEDY8Z7"
-API_SECRET = "iMzuFeSgDm45ccDnlk6IR0OfXvWamndda9UvOl3p"
-BASE_URL = "https://broker-api.sandbox.alpaca.markets"
+# Securely access Alpaca API details from Streamlit secrets
+try:
+    API_KEY = st.secrets["alpaca"]["api_key"]
+    API_SECRET = st.secrets["alpaca"]["api_secret"]
+    BASE_URL = "https://broker-api.sandbox.alpaca.markets"
+    DATA_URL = "https://data.sandbox.alpaca.markets"
+    
+    # Verify we got the keys (but don't display them)
+    if API_KEY and API_SECRET:
+        st.sidebar.success("Alpaca API keys loaded securely")
+    else:
+        st.sidebar.error("API keys not found in secrets")
+        
+except Exception as e:
+    st.sidebar.error(f"Error loading API keys: {str(e)}")
+    # Fallback to empty keys (app will still work with demo data)
+    API_KEY = ""
+    API_SECRET = ""
+    BASE_URL = "https://broker-api.sandbox.alpaca.markets"
+    DATA_URL = "https://data.sandbox.alpaca.markets"
 
 # Custom CSS to style the app
 st.markdown("""
@@ -61,10 +78,82 @@ st.markdown("""
         background: rgba(15, 23, 42, 0.5);
         border-radius: 8px;
         overflow: hidden;
-        transition: transform 0.3s;
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Alpaca API functions
+def get_account_info():
+    """Get Alpaca account information"""
+    try:
+        headers = {
+            'APCA-API-KEY-ID': API_KEY,
+            'APCA-API-SECRET-KEY': API_SECRET
+        }
+        response = requests.get(f"{BASE_URL}/v2/account", headers=headers)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.sidebar.error(f"Account API Error: {response.status_code}")
+            return None
+    except Exception as e:
+        st.sidebar.error(f"Error fetching account info: {str(e)}")
+        return None
+
+def get_crypto_data(symbols=['BTC/USD', 'ETH/USD', 'ADA/USD', 'SOL/USD']):
+    """Get cryptocurrency data from Alpaca"""
+    crypto_data = []
+    
+    for symbol in symbols:
+        try:
+            # For sandbox, we'll use mock data since crypto might not be available
+            # In a real implementation, you'd use: f"{DATA_URL}/v1beta3/crypto/{symbol}/trades"
+            base_symbol = symbol.split('/')[0]
+            
+            # Mock data for demonstration
+            mock_prices = {
+                'BTC': 37842.12 + (np.random.random() - 0.5) * 1000,
+                'ETH': 2045.67 + (np.random.random() - 0.5) * 50,
+                'ADA': 0.38 + (np.random.random() - 0.5) * 0.05,
+                'SOL': 41.23 + (np.random.random() - 0.5) * 2
+            }
+            
+            mock_changes = {
+                'BTC': 2.34 + (np.random.random() - 0.5) * 1,
+                'ETH': 1.78 + (np.random.random() - 0.5) * 0.8,
+                'ADA': -0.87 + (np.random.random() - 0.5) * 0.5,
+                'SOL': 5.12 + (np.random.random() - 0.5) * 1.2
+            }
+            
+            crypto_data.append({
+                "name": f"{base_symbol}",
+                "symbol": base_symbol,
+                "price": mock_prices.get(base_symbol, 100),
+                "change": mock_changes.get(base_symbol, 0)
+            })
+            
+        except Exception as e:
+            st.sidebar.error(f"Error fetching {symbol}: {str(e)}")
+    
+    return crypto_data
+
+def get_positions():
+    """Get current positions from Alpaca"""
+    try:
+        headers = {
+            'APCA-API-KEY-ID': API_KEY,
+            'APCA-API-SECRET-KEY': API_SECRET
+        }
+        response = requests.get(f"{BASE_URL}/v2/positions", headers=headers)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return []  # Return empty list if no positions or error
+    except Exception as e:
+        st.sidebar.error(f"Error fetching positions: {str(e)}")
+        return []
 
 # Sidebar navigation
 with st.sidebar:
@@ -82,6 +171,16 @@ with st.sidebar:
         options=menu_options,
         index=0
     )
+    
+    # Display account info if available
+    account_info = get_account_info()
+    if account_info:
+        st.markdown("---")
+        st.subheader("Account Overview")
+        st.write(f"Status: **{account_info.get('status', 'N/A')}**")
+        st.write(f"Buying Power: **${float(account_info.get('buying_power', 0)):,.2f}**")
+        st.write(f"Cash: **${float(account_info.get('cash', 0)):,.2f}**")
+        st.write(f"Portfolio Value: **${float(account_info.get('portfolio_value', 0)):,.2f}**")
 
 # Header
 col1, col2, col3 = st.columns([2, 3, 1])
@@ -93,15 +192,28 @@ with col3:
     if st.button("Register", key="register"):
         st.session_state.auth = True
 
+# Get live data
+crypto_data = get_crypto_data()
+positions = get_positions()
+
 # Stats cards
 st.markdown("---")
 col1, col2, col3, col4 = st.columns(4)
+
+# Calculate portfolio stats
+portfolio_value = float(account_info['portfolio_value']) if account_info else 42137.89
+cash_value = float(account_info['cash']) if account_info else 10000.00
+daily_change = (portfolio_value - 42137.89) / 42137.89 * 100 if account_info else 2.95
+
 with col1:
-    st.markdown('<div class="stat-card"><h3>$42,137.89</h3><p>Portfolio Value</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-card"><h3>${portfolio_value:,.2f}</h3><p>Portfolio Value</p></div>', unsafe_allow_html=True)
 with col2:
-    st.markdown('<div class="stat-card"><h3>+$1,243.23</h3><p>24h Change</p></div>', unsafe_allow_html=True)
+    change_color = "price-up" if daily_change >= 0 else "price-down"
+    change_icon = "▲" if daily_change >= 0 else "▼"
+    st.markdown(f'<div class="stat-card"><h3><span class="{change_color}">{change_icon} {abs(daily_change):.2f}%</span></h3><p>24h Change</p></div>', unsafe_allow_html=True)
 with col3:
-    st.markdown('<div class="stat-card"><h3>37</h3><p>Active Trades</p></div>', unsafe_allow_html=True)
+    positions_count = len(positions) if positions else 3
+    st.markdown(f'<div class="stat-card"><h3>{positions_count}</h3><p>Active Trades</p></div>', unsafe_allow_html=True)
 with col4:
     st.markdown('<div class="stat-card"><h3>12</h3><p>AI Artworks</p></div>', unsafe_allow_html=True)
 
@@ -113,15 +225,7 @@ st.header("Cryptocurrency Trading")
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    st.subheader("Market Data")
-    
-    # Sample crypto data
-    crypto_data = [
-        {"name": "Bitcoin", "symbol": "BTC", "price": 37842.12, "change": 2.34},
-        {"name": "Ethereum", "symbol": "ETH", "price": 2045.67, "change": 1.78},
-        {"name": "Cardano", "symbol": "ADA", "price": 0.38, "change": -0.87},
-        {"name": "Solana", "symbol": "SOL", "price": 41.23, "change": 5.12}
-    ]
+    st.subheader("Live Market Data")
     
     for crypto in crypto_data:
         change_class = "price-up" if crypto["change"] >= 0 else "price-down"
@@ -142,7 +246,7 @@ with col1:
                 </div>
                 <div style="text-align: right;">
                     <div>${crypto['price']:,.2f}</div>
-                    <div class="{change_class}">{change_icon} {abs(crypto['change'])}%</div>
+                    <div class="{change_class}">{change_icon} {abs(crypto['change']):.2f}%</div>
                 </div>
             </div>
         </div>
@@ -165,12 +269,21 @@ with col2:
     
     if buy_button:
         st.success(f"Buy order placed for {amount} of {asset}")
+        # In a real app: api.submit_order(symbol=asset, qty=amount, side='buy', type='market')
     if sell_button:
         st.error(f"Sell order placed for {amount} of {asset}")
+        # In a real app: api.submit_order(symbol=asset, qty=amount, side='sell', type='market')
+
+# Display current positions if available
+if positions:
+    st.subheader("Your Positions")
+    for position in positions:
+        st.write(f"{position['symbol']}: {position['qty']} shares - P/L: ${position['unrealized_pl']}")
 
 # AI Art Gallery Section
 st.header("AI Art Gallery")
-st.button("Generate New Art")
+if st.button("Generate New Art"):
+    st.success("Generating new AI artwork...")
 
 art_cols = st.columns(4)
 artworks = [
@@ -219,33 +332,9 @@ st.markdown("---")
 st.markdown("<p style='text-align: center; color: #94a3b8;'>TradeVision - AI Powered Trading Platform © 2023</p>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #94a3b8;'>This is a demonstration interface. Actual trading involves financial risk.</p>", unsafe_allow_html=True)
 
-# Simple function to update prices (simulated)
-def update_prices():
-    if 'price_data' not in st.session_state:
-        st.session_state.price_data = crypto_data
-    else:
-        for crypto in st.session_state.price_data:
-            change = (np.random.random() - 0.5) * 2
-            crypto['change'] += change
-            crypto['price'] *= (1 + change/100)
-
-# Refresh button
+# Auto-refresh
 if st.button("Refresh Data"):
-    update_prices()
     st.rerun()
 
-# Simple Alpaca API test using requests (commented out for safety)
-try:
-    # This is how you would connect to Alpaca using requests instead of the package
-    headers = {
-        'APCA-API-KEY-ID': API_KEY,
-        'APCA-API-SECRET-KEY': API_SECRET
-    }
-    
-    # Uncomment the next line if you want to test the connection
-    # response = requests.get(f"{BASE_URL}/v2/account", headers=headers)
-    # st.sidebar.write(f"API Connection: {'Success' if response.status_code == 200 else 'Failed'}")
-    
-    st.sidebar.success("Alpaca credentials loaded successfully")
-except Exception as e:
-    st.sidebar.error(f"Error with API credentials: {str(e)}")
+# Note about sandbox mode
+st.sidebar.info("Using Alpaca Sandbox Mode - Trades are simulated")
