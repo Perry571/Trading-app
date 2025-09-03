@@ -4,7 +4,6 @@ import numpy as np
 import requests
 import time
 from datetime import datetime, timedelta
-import json
 
 # Set page configuration
 st.set_page_config(
@@ -13,27 +12,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Securely access Alpaca API details from Streamlit secrets
-try:
-    API_KEY = st.secrets["alpaca"]["api_key"]
-    API_SECRET = st.secrets["alpaca"]["api_secret"]
-    BASE_URL = "https://broker-api.sandbox.alpaca.markets"
-    DATA_URL = "https://data.sandbox.alpaca.markets"
-    
-    # Verify we got the keys (but don't display them)
-    if API_KEY and API_SECRET:
-        st.sidebar.success("Alpaca API keys loaded securely")
-    else:
-        st.sidebar.error("API keys not found in secrets")
-        
-except Exception as e:
-    st.sidebar.error(f"Error loading API keys: {str(e)}")
-    # Fallback to empty keys (app will still work with demo data)
-    API_KEY = ""
-    API_SECRET = ""
-    BASE_URL = "https://broker-api.sandbox.alpaca.markets"
-    DATA_URL = "https://data.sandbox.alpaca.markets"
 
 # Custom CSS to style the app
 st.markdown("""
@@ -79,81 +57,134 @@ st.markdown("""
         border-radius: 8px;
         overflow: hidden;
     }
+    .data-status {
+        padding: 8px 12px;
+        border-radius: 6px;
+        margin: 5px 0;
+        font-size: 0.9rem;
+    }
+    .status-success {
+        background-color: #10b98120;
+        border-left: 4px solid #10b981;
+    }
+    .status-warning {
+        background-color: #f59e0b20;
+        border-left: 4px solid #f59e0b;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# Alpaca API functions
-def get_account_info():
-    """Get Alpaca account information"""
+# Alternative data source functions (no yfinance needed)
+def get_crypto_price(symbol):
+    """Get cryptocurrency price from alternative source"""
     try:
-        headers = {
-            'APCA-API-KEY-ID': API_KEY,
-            'APCA-API-SECRET-KEY': API_SECRET
-        }
-        response = requests.get(f"{BASE_URL}/v2/account", headers=headers)
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            st.sidebar.error(f"Account API Error: {response.status_code}")
-            return None
-    except Exception as e:
-        st.sidebar.error(f"Error fetching account info: {str(e)}")
-        return None
+        # Try to get data from CoinGecko API (no API key needed)
+        if symbol == "BTC":
+            url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            return data['bitcoin']['usd'], True
+        elif symbol == "ETH":
+            url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            return data['ethereum']['usd'], True
+        elif symbol == "ADA":
+            url = "https://api.coingecko.com/api/v3/simple/price?ids=cardano&vs_currencies=usd"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            return data['cardano']['usd'], True
+        elif symbol == "SOL":
+            url = "https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            return data['solana']['usd'], True
+    except:
+        pass
+    
+    # Fallback to demo data
+    demo_prices = {
+        "BTC": 37842.12 + (np.random.random() - 0.5) * 1000,
+        "ETH": 2045.67 + (np.random.random() - 0.5) * 50,
+        "ADA": 0.38 + (np.random.random() - 0.5) * 0.05,
+        "SOL": 41.23 + (np.random.random() - 0.5) * 2,
+        "DOGE": 0.08 + (np.random.random() - 0.5) * 0.01
+    }
+    return demo_prices.get(symbol, 100.00), False
 
-def get_crypto_data(symbols=['BTC/USD', 'ETH/USD', 'ADA/USD', 'SOL/USD']):
-    """Get cryptocurrency data from Alpaca"""
+def get_stock_price(symbol):
+    """Get stock price from alternative source"""
+    try:
+        # Try to get data from Financial Modeling Prep (free tier)
+        if symbol in ["AAPL", "TSLA", "NVDA", "SPY", "MSFT", "GOOGL"]:
+            url = f"https://financialmodelingprep.com/api/v3/quote/{symbol}?apikey=demo"
+            response = requests.get(url, timeout=10)
+            data = response.json()
+            if data and len(data) > 0:
+                return data[0]['price'], True
+    except:
+        pass
+    
+    # Fallback to demo data
+    demo_prices = {
+        "AAPL": 170.00 + (np.random.random() - 0.5) * 2,
+        "TSLA": 250.00 + (np.random.random() - 0.5) * 5,
+        "NVDA": 500.00 + (np.random.random() - 0.5) * 10,
+        "SPY": 450.00 + (np.random.random() - 0.5) * 3,
+        "MSFT": 330.00 + (np.random.random() - 0.5) * 2,
+        "GOOGL": 130.00 + (np.random.random() - 0.5) * 1
+    }
+    return demo_prices.get(symbol, 100.00), False
+
+def get_stock_data():
+    """Get stock data with real prices"""
+    stock_symbols = ["AAPL", "TSLA", "NVDA", "SPY", "MSFT", "GOOGL"]
+    stock_data = []
+    live_data_count = 0
+    
+    for symbol in stock_symbols:
+        current_price, is_live = get_stock_price(symbol)
+        
+        # Calculate random change for demo purposes
+        price_change = (np.random.random() - 0.5) * 2
+        
+        if is_live:
+            live_data_count += 1
+        
+        stock_data.append({
+            "name": symbol,
+            "symbol": symbol,
+            "price": current_price,
+            "change": price_change,
+            "is_live": is_live
+        })
+    
+    return stock_data, live_data_count
+
+def get_crypto_data():
+    """Get cryptocurrency data with real prices"""
+    crypto_symbols = ["BTC", "ETH", "ADA", "SOL", "DOGE"]
     crypto_data = []
+    live_data_count = 0
     
-    for symbol in symbols:
-        try:
-            # For sandbox, we'll use mock data since crypto might not be available
-            # In a real implementation, you'd use: f"{DATA_URL}/v1beta3/crypto/{symbol}/trades"
-            base_symbol = symbol.split('/')[0]
-            
-            # Mock data for demonstration
-            mock_prices = {
-                'BTC': 37842.12 + (np.random.random() - 0.5) * 1000,
-                'ETH': 2045.67 + (np.random.random() - 0.5) * 50,
-                'ADA': 0.38 + (np.random.random() - 0.5) * 0.05,
-                'SOL': 41.23 + (np.random.random() - 0.5) * 2
-            }
-            
-            mock_changes = {
-                'BTC': 2.34 + (np.random.random() - 0.5) * 1,
-                'ETH': 1.78 + (np.random.random() - 0.5) * 0.8,
-                'ADA': -0.87 + (np.random.random() - 0.5) * 0.5,
-                'SOL': 5.12 + (np.random.random() - 0.5) * 1.2
-            }
-            
-            crypto_data.append({
-                "name": f"{base_symbol}",
-                "symbol": base_symbol,
-                "price": mock_prices.get(base_symbol, 100),
-                "change": mock_changes.get(base_symbol, 0)
-            })
-            
-        except Exception as e:
-            st.sidebar.error(f"Error fetching {symbol}: {str(e)}")
-    
-    return crypto_data
-
-def get_positions():
-    """Get current positions from Alpaca"""
-    try:
-        headers = {
-            'APCA-API-KEY-ID': API_KEY,
-            'APCA-API-SECRET-KEY': API_SECRET
-        }
-        response = requests.get(f"{BASE_URL}/v2/positions", headers=headers)
+    for symbol in crypto_symbols:
+        current_price, is_live = get_crypto_price(symbol)
         
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return []  # Return empty list if no positions or error
-    except Exception as e:
-        st.sidebar.error(f"Error fetching positions: {str(e)}")
-        return []
+        # Calculate random change for demo purposes
+        price_change = (np.random.random() - 0.5) * 3
+        
+        if is_live:
+            live_data_count += 1
+        
+        crypto_data.append({
+            "name": symbol,
+            "symbol": symbol,
+            "price": current_price,
+            "change": price_change,
+            "is_live": is_live
+        })
+    
+    return crypto_data, live_data_count
 
 # Sidebar navigation
 with st.sidebar:
@@ -161,7 +192,7 @@ with st.sidebar:
     st.markdown("---")
     
     menu_options = [
-        "Dashboard", "Crypto Trading", "Day Trading", 
+        "Dashboard", "Crypto Trading", "Stock Trading", 
         "Options", "AI Trading Bots", "AI Games", 
         "AI Art Gallery", "Settings"
     ]
@@ -172,15 +203,20 @@ with st.sidebar:
         index=0
     )
     
-    # Display account info if available
-    account_info = get_account_info()
-    if account_info:
-        st.markdown("---")
-        st.subheader("Account Overview")
-        st.write(f"Status: **{account_info.get('status', 'N/A')}**")
-        st.write(f"Buying Power: **${float(account_info.get('buying_power', 0)):,.2f}**")
-        st.write(f"Cash: **${float(account_info.get('cash', 0)):,.2f}**")
-        st.write(f"Portfolio Value: **${float(account_info.get('portfolio_value', 0)):,.2f}**")
+    # Display account info (demo data)
+    st.markdown("---")
+    st.subheader("Account Overview")
+    st.write("Status: **ACTIVE**")
+    st.write("Buying Power: **$100,000.00**")
+    st.write("Cash: **$25,000.00**")
+    st.write("Portfolio Value: **$42,137.89**")
+    
+    # Data status
+    st.markdown("---")
+    st.subheader("Data Status")
+    st.markdown('<div class="data-status status-success">Using Alternative Data Sources</div>', unsafe_allow_html=True)
+    st.markdown('<div class="data-status status-success">No yfinance required</div>', unsafe_allow_html=True)
+    st.markdown('<div class="data-status status-warning">Some data may be delayed</div>', unsafe_allow_html=True)
 
 # Header
 col1, col2, col3 = st.columns([2, 3, 1])
@@ -193,17 +229,18 @@ with col3:
         st.session_state.auth = True
 
 # Get live data
-crypto_data = get_crypto_data()
-positions = get_positions()
+crypto_data, crypto_live_count = get_crypto_data()
+stock_data, stock_live_count = get_stock_data()
+total_live_data = crypto_live_count + stock_live_count
+total_assets = len(crypto_data) + len(stock_data)
 
 # Stats cards
 st.markdown("---")
 col1, col2, col3, col4 = st.columns(4)
 
 # Calculate portfolio stats
-portfolio_value = float(account_info['portfolio_value']) if account_info else 42137.89
-cash_value = float(account_info['cash']) if account_info else 10000.00
-daily_change = (portfolio_value - 42137.89) / 42137.89 * 100 if account_info else 2.95
+portfolio_value = 42137.89
+daily_change = (np.random.random() - 0.5) * 3  # Random change for demo
 
 with col1:
     st.markdown(f'<div class="stat-card"><h3>${portfolio_value:,.2f}</h3><p>Portfolio Value</p></div>', unsafe_allow_html=True)
@@ -212,10 +249,17 @@ with col2:
     change_icon = "▲" if daily_change >= 0 else "▼"
     st.markdown(f'<div class="stat-card"><h3><span class="{change_color}">{change_icon} {abs(daily_change):.2f}%</span></h3><p>24h Change</p></div>', unsafe_allow_html=True)
 with col3:
-    positions_count = len(positions) if positions else 3
-    st.markdown(f'<div class="stat-card"><h3>{positions_count}</h3><p>Active Trades</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-card"><h3>{total_assets}</h3><p>Assets Tracked</p></div>', unsafe_allow_html=True)
 with col4:
-    st.markdown('<div class="stat-card"><h3>12</h3><p>AI Artworks</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-card"><h3>{total_live_data}/{total_assets}</h3><p>Live Data Sources</p></div>', unsafe_allow_html=True)
+
+# Data status indicator
+if total_live_data == total_assets:
+    st.success("✅ All data is live from external sources")
+elif total_live_data > 0:
+    st.warning(f"⚠️ {total_live_data}/{total_assets} assets using live data (some using demo data)")
+else:
+    st.error("❌ Using demo data - check internet connection")
 
 # Main content
 st.markdown("---")
@@ -225,11 +269,12 @@ st.header("Cryptocurrency Trading")
 col1, col2 = st.columns([1, 1])
 
 with col1:
-    st.subheader("Live Market Data")
+    st.subheader("Live Crypto Data")
     
     for crypto in crypto_data:
         change_class = "price-up" if crypto["change"] >= 0 else "price-down"
         change_icon = "▲" if crypto["change"] >= 0 else "▼"
+        live_indicator = "✅" if crypto["is_live"] else "📊"
         
         st.markdown(f"""
         <div class="crypto-item">
@@ -240,7 +285,7 @@ with col1:
                         {crypto['symbol'][0]}
                     </div>
                     <div>
-                        <div><strong>{crypto['name']}</strong></div>
+                        <div><strong>{crypto['name']}</strong> {live_indicator}</div>
                         <div>{crypto['symbol']}</div>
                     </div>
                 </div>
@@ -252,13 +297,51 @@ with col1:
         </div>
         """, unsafe_allow_html=True)
 
+# Stock Trading Section
+st.header("Stock Trading")
+col1, col2 = st.columns([1, 1])
+
+with col1:
+    st.subheader("Live Stock Data")
+    
+    for stock in stock_data:
+        change_class = "price-up" if stock["change"] >= 0 else "price-down"
+        change_icon = "▲" if stock["change"] >= 0 else "▼"
+        live_indicator = "✅" if stock["is_live"] else "📊"
+        
+        st.markdown(f"""
+        <div class="crypto-item">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="width: 36px; height: 36px; border-radius: 50%; background: #0f172a; 
+                                display: flex; align-items: center; justify-content: center;">
+                        {stock['symbol'][0]}
+                    </div>
+                    <div>
+                        <div><strong>{stock['name']}</strong> {live_indicator}</div>
+                        <div>{stock['symbol']}</div>
+                    </div>
+                </div>
+                <div style="text-align: right;">
+                    <div>${stock['price']:,.2f}</div>
+                    <div class="{change_class}">{change_icon} {abs(stock['change']):.2f}%</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
 with col2:
     st.subheader("Execute Trade")
     
     with st.form("trade_form"):
-        asset = st.selectbox("Asset", ["BTC/USD", "ETH/USD", "ADA/USD", "SOL/USD"])
+        asset_type = st.selectbox("Asset Type", ["Crypto", "Stocks"])
+        
+        if asset_type == "Crypto":
+            asset = st.selectbox("Asset", ["BTC/USD", "ETH/USD", "ADA/USD", "SOL/USD", "DOGE/USD"])
+        else:
+            asset = st.selectbox("Asset", ["AAPL", "TSLA", "NVDA", "SPY", "MSFT", "GOOGL"])
+            
         amount = st.number_input("Amount ($)", min_value=0.0, value=100.0, step=10.0)
-        leverage = st.selectbox("Leverage", ["1x", "2x", "5x", "10x"])
         order_type = st.selectbox("Order Type", ["Market", "Limit", "Stop Loss"])
         
         col1, col2 = st.columns(2)
@@ -269,16 +352,8 @@ with col2:
     
     if buy_button:
         st.success(f"Buy order placed for {amount} of {asset}")
-        # In a real app: api.submit_order(symbol=asset, qty=amount, side='buy', type='market')
     if sell_button:
         st.error(f"Sell order placed for {amount} of {asset}")
-        # In a real app: api.submit_order(symbol=asset, qty=amount, side='sell', type='market')
-
-# Display current positions if available
-if positions:
-    st.subheader("Your Positions")
-    for position in positions:
-        st.write(f"{position['symbol']}: {position['qty']} shares - P/L: ${position['unrealized_pl']}")
 
 # AI Art Gallery Section
 st.header("AI Art Gallery")
@@ -308,25 +383,6 @@ for i, art in enumerate(artworks):
         </div>
         """, unsafe_allow_html=True)
 
-# Options Trading Section
-st.header("Options Trading")
-tab1, tab2, tab3 = st.tabs(["Call Options", "Put Options", "Strategies"])
-
-with tab1:
-    st.write("Trade call options based on market predictions.")
-    
-    option = st.selectbox("Select Option", [
-        "AAPL 170C 12/15", 
-        "TSLA 250C 12/22", 
-        "NVDA 500C 01/05", 
-        "SPY 450C 12/29"
-    ])
-    
-    contracts = st.number_input("Number of Contracts", min_value=1, value=1)
-    
-    if st.button("Buy Call Option"):
-        st.success(f"Bought {contracts} contract(s) of {option}")
-
 # Footer
 st.markdown("---")
 st.markdown("<p style='text-align: center; color: #94a3b8;'>TradeVision - AI Powered Trading Platform © 2023</p>", unsafe_allow_html=True)
@@ -336,5 +392,11 @@ st.markdown("<p style='text-align: center; color: #94a3b8;'>This is a demonstrat
 if st.button("Refresh Data"):
     st.rerun()
 
-# Note about sandbox mode
-st.sidebar.info("Using Alpaca Sandbox Mode - Trades are simulated")
+# Data source info
+st.sidebar.markdown("---")
+st.sidebar.info("""
+**Data Sources:** CoinGecko API + Financial Modeling Prep  
+**No yfinance required**  
+**Rate Limits:** Minimal (free tiers)  
+**Data Delay:** Real-time or slight delay
+""")
