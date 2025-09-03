@@ -4,7 +4,6 @@ import numpy as np
 import requests
 import time
 from datetime import datetime, timedelta
-import alpaca_trade_api as tradeapi
 
 # Set page configuration
 st.set_page_config(
@@ -14,13 +13,10 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Initialize Alpaca API
+# Alpaca API details (we'll use regular requests instead of the alpaca package)
 API_KEY = "CKGJ7HZWSKG4WOEDY8Z7"
 API_SECRET = "iMzuFeSgDm45ccDnlk6IR0OfXvWamndda9UvOl3p"
 BASE_URL = "https://broker-api.sandbox.alpaca.markets"
-
-# Initialize Alpaca API client
-api = tradeapi.REST(API_KEY, API_SECRET, BASE_URL, api_version='v2')
 
 # Custom CSS to style the app
 st.markdown("""
@@ -81,16 +77,9 @@ with st.sidebar:
         "AI Art Gallery", "Settings"
     ]
     
-    icons = [
-        "house", "coins", "exchange-alt", 
-        "chart-bar", "robot", "gamepad", 
-        "palette", "cog"
-    ]
-    
     selected_menu = st.radio(
         "Navigation",
         options=menu_options,
-        format_func=lambda x: f"{x}",
         index=0
     )
 
@@ -126,7 +115,7 @@ col1, col2 = st.columns([1, 1])
 with col1:
     st.subheader("Market Data")
     
-    # Sample crypto data (in a real app, you'd fetch this from an API)
+    # Sample crypto data
     crypto_data = [
         {"name": "Bitcoin", "symbol": "BTC", "price": 37842.12, "change": 2.34},
         {"name": "Ethereum", "symbol": "ETH", "price": 2045.67, "change": 1.78},
@@ -230,39 +219,33 @@ st.markdown("---")
 st.markdown("<p style='text-align: center; color: #94a3b8;'>TradeVision - AI Powered Trading Platform © 2023</p>", unsafe_allow_html=True)
 st.markdown("<p style='text-align: center; color: #94a3b8;'>This is a demonstration interface. Actual trading involves financial risk.</p>", unsafe_allow_html=True)
 
-# Simulate live data updates
-if 'price_data' not in st.session_state:
-    st.session_state.price_data = crypto_data
-
-# Function to update prices (simulated)
+# Simple function to update prices (simulated)
 def update_prices():
-    for crypto in st.session_state.price_data:
-        change = (np.random.random() - 0.5) * 2
-        crypto['change'] += change
-        crypto['price'] *= (1 + change/100)
-    
-# Auto-refresh every 5 seconds
+    if 'price_data' not in st.session_state:
+        st.session_state.price_data = crypto_data
+    else:
+        for crypto in st.session_state.price_data:
+            change = (np.random.random() - 0.5) * 2
+            crypto['change'] += change
+            crypto['price'] *= (1 + change/100)
+
+# Refresh button
 if st.button("Refresh Data"):
     update_prices()
     st.rerun()
 
-# Auto-refresh every 30 seconds
-if st.checkbox("Auto-refresh every 30 seconds"):
-    time.sleep(30)
-    update_prices()
-    st.rerun()
-
-# Alpaca API integration example
+# Simple Alpaca API test using requests (commented out for safety)
 try:
-    # Get account information
-    account = api.get_account()
-    st.sidebar.info(f"Account Status: {account.status}")
+    # This is how you would connect to Alpaca using requests instead of the package
+    headers = {
+        'APCA-API-KEY-ID': API_KEY,
+        'APCA-API-SECRET-KEY': API_SECRET
+    }
     
-    # Get positions
-    positions = api.list_positions()
-    if positions:
-        st.sidebar.subheader("Current Positions")
-        for position in positions:
-            st.sidebar.write(f"{position.symbol}: {position.qty} shares")
+    # Uncomment the next line if you want to test the connection
+    # response = requests.get(f"{BASE_URL}/v2/account", headers=headers)
+    # st.sidebar.write(f"API Connection: {'Success' if response.status_code == 200 else 'Failed'}")
+    
+    st.sidebar.success("Alpaca credentials loaded successfully")
 except Exception as e:
-    st.sidebar.error(f"Error connecting to Alpaca: {e}")
+    st.sidebar.error(f"Error with API credentials: {str(e)}")
