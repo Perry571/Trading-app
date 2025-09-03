@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import yfinance as yf
 import requests
 import time
 from datetime import datetime, timedelta
-import json
 
 # Set page configuration
 st.set_page_config(
@@ -13,12 +13,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-# Alpha Vantage API keys to test
-ALPHA_VANTAGE_KEYS = [
-    "BE6N0Y60JC6H9J6M",
-    "7FTFXJCGSMBORU0W"
-]
 
 # Custom CSS to style the app
 st.markdown("""
@@ -64,184 +58,133 @@ st.markdown("""
         border-radius: 8px;
         overflow: hidden;
     }
-    .key-status {
-        padding: 10px;
-        border-radius: 5px;
+    .data-status {
+        padding: 8px 12px;
+        border-radius: 6px;
         margin: 5px 0;
+        font-size: 0.9rem;
     }
-    .key-valid {
+    .status-success {
         background-color: #10b98120;
         border-left: 4px solid #10b981;
     }
-    .key-invalid {
-        background-color: #ef444420;
-        border-left: 4px solid #ef4444;
+    .status-warning {
+        background-color: #f59e0b20;
+        border-left: 4px solid #f59e0b;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Alpha Vantage API functions
-def test_alpha_vantage_key(api_key):
-    """Test if an Alpha Vantage API key works"""
-    test_url = "https://www.alphavantage.co/query"
-    params = {
-        "function": "GLOBAL_QUOTE",
-        "symbol": "AAPL",
-        "apikey": api_key
+# Yahoo Finance data functions
+@st.cache_data(ttl=60)  # Cache for 60 seconds
+def get_stock_price(symbol):
+    """Get real-time stock price from Yahoo Finance"""
+    try:
+        ticker = yf.Ticker(symbol)
+        data = ticker.history(period="1d", interval="1m")
+        if not data.empty:
+            return data['Close'].iloc[-1], True
+        else:
+            # Fallback to info if history is empty
+            info = ticker.info
+            if 'regularMarketPrice' in info:
+                return info['regularMarketPrice'], True
+    except Exception as e:
+        st.sidebar.error(f"Error fetching {symbol}: {str(e)}")
+    
+    # Fallback to demo data
+    demo_prices = {
+        "AAPL": 170.00 + (np.random.random() - 0.5) * 2,
+        "TSLA": 250.00 + (np.random.random() - 0.5) * 5,
+        "NVDA": 500.00 + (np.random.random() - 0.5) * 10,
+        "SPY": 450.00 + (np.random.random() - 0.5) * 3,
+        "MSFT": 330.00 + (np.random.random() - 0.5) * 2,
+        "GOOGL": 130.00 + (np.random.random() - 0.5) * 1
     }
-    
+    return demo_prices.get(symbol, 100.00), False
+
+@st.cache_data(ttl=60)  # Cache for 60 seconds
+def get_crypto_price(symbol):
+    """Get cryptocurrency price from Yahoo Finance"""
     try:
-        response = requests.get(test_url, params=params)
-        data = response.json()
+        # Yahoo Finance uses different symbols (BTC-USD instead of BTC/USD)
+        yahoo_symbol = f"{symbol}-USD"
+        ticker = yf.Ticker(yahoo_symbol)
+        data = ticker.history(period="1d", interval="1m")
         
-        if "Global Quote" in data:
-            return True, "API key is working! ✅"
-        elif "Note" in data and "API call frequency" in data["Note"]:
-            return True, "API key is valid but rate limited ⚠️"
-        elif "Error Message" in data:
-            return False, f"Invalid API key ❌: {data['Error Message']}"
+        if not data.empty:
+            return data['Close'].iloc[-1], True
         else:
-            return False, "Unknown API response ❌"
-            
+            # Fallback to info if history is empty
+            info = ticker.info
+            if 'regularMarketPrice' in info:
+                return info['regularMarketPrice'], True
     except Exception as e:
-        return False, f"Connection error: {str(e)} ❌"
-
-def get_stock_price(symbol, api_key):
-    """Get real-time stock price from Alpha Vantage"""
-    try:
-        params = {
-            "function": "GLOBAL_QUOTE",
-            "symbol": symbol,
-            "apikey": api_key
-        }
-        
-        response = requests.get("https://www.alphavantage.co/query", params=params)
-        data = response.json()
-        
-        if "Global Quote" in data:
-            return float(data["Global Quote"]["05. price"])
-        else:
-            return None
-            
-    except Exception as e:
-        st.sidebar.error(f"Error fetching {symbol} price: {str(e)}")
-        return None
-
-def get_crypto_price(symbol, api_key):
-    """Get cryptocurrency price from Alpha Vantage"""
-    try:
-        # Convert symbol to Alpha Vantage format (e.g., BTC->BTCUSD)
-        crypto_symbol = f"{symbol}USD"
-        
-        params = {
-            "function": "CURRENCY_EXCHANGE_RATE",
-            "from_currency": symbol,
-            "to_currency": "USD",
-            "apikey": api_key
-        }
-        
-        response = requests.get("https://www.alphavantage.co/query", params=params)
-        data = response.json()
-        
-        if "Realtime Currency Exchange Rate" in data:
-            return float(data["Realtime Currency Exchange Rate"]["5. Exchange Rate"])
-        else:
-            return None
-            
-    except Exception as e:
-        st.sidebar.error(f"Error fetching {symbol} price: {str(e)}")
-        return None
-
-def get_crypto_data(api_key):
-    """Get cryptocurrency data with real prices"""
-    crypto_symbols = ["BTC", "ETH", "ADA", "SOL"]
-    crypto_data = []
+        st.sidebar.error(f"Error fetching {symbol}: {str(e)}")
     
-    for symbol in crypto_symbols:
-        current_price = get_crypto_price(symbol, api_key)
-        
-        if current_price is None:
-            # Fallback to demo data if API fails
-            demo_prices = {
-                "BTC": 37842.12 + (np.random.random() - 0.5) * 1000,
-                "ETH": 2045.67 + (np.random.random() - 0.5) * 50,
-                "ADA": 0.38 + (np.random.random() - 0.5) * 0.05,
-                "SOL": 41.23 + (np.random.random() - 0.5) * 2
-            }
-            current_price = demo_prices.get(symbol, 100.00)
-        
-        # Calculate random change for demo purposes
-        price_change = (np.random.random() - 0.5) * 3
-        
-        crypto_data.append({
-            "name": symbol,
-            "symbol": symbol,
-            "price": current_price,
-            "change": price_change
-        })
-    
-    return crypto_data
+    # Fallback to demo data
+    demo_prices = {
+        "BTC": 37842.12 + (np.random.random() - 0.5) * 1000,
+        "ETH": 2045.67 + (np.random.random() - 0.5) * 50,
+        "ADA": 0.38 + (np.random.random() - 0.5) * 0.05,
+        "SOL": 41.23 + (np.random.random() - 0.5) * 2,
+        "DOGE": 0.08 + (np.random.random() - 0.5) * 0.01
+    }
+    return demo_prices.get(symbol, 100.00), False
 
-def get_stock_data(api_key):
-    """Get stock data with real prices"""
-    stock_symbols = ["AAPL", "TSLA", "NVDA", "SPY"]
+def get_stock_data():
+    """Get stock data with real prices from Yahoo Finance"""
+    stock_symbols = ["AAPL", "TSLA", "NVDA", "SPY", "MSFT", "GOOGL"]
     stock_data = []
+    live_data_count = 0
     
     for symbol in stock_symbols:
-        current_price = get_stock_price(symbol, api_key)
-        
-        if current_price is None:
-            # Fallback to demo data if API fails
-            demo_prices = {
-                "AAPL": 170.00 + (np.random.random() - 0.5) * 2,
-                "TSLA": 250.00 + (np.random.random() - 0.5) * 5,
-                "NVDA": 500.00 + (np.random.random() - 0.5) * 10,
-                "SPY": 450.00 + (np.random.random() - 0.5) * 3
-            }
-            current_price = demo_prices.get(symbol, 100.00)
+        current_price, is_live = get_stock_price(symbol)
         
         # Calculate random change for demo purposes
         price_change = (np.random.random() - 0.5) * 2
+        
+        if is_live:
+            live_data_count += 1
         
         stock_data.append({
             "name": symbol,
             "symbol": symbol,
             "price": current_price,
-            "change": price_change
+            "change": price_change,
+            "is_live": is_live
         })
     
-    return stock_data
+    return stock_data, live_data_count
 
-# Sidebar navigation and API key testing
+def get_crypto_data():
+    """Get cryptocurrency data with real prices from Yahoo Finance"""
+    crypto_symbols = ["BTC", "ETH", "ADA", "SOL", "DOGE"]
+    crypto_data = []
+    live_data_count = 0
+    
+    for symbol in crypto_symbols:
+        current_price, is_live = get_crypto_price(symbol)
+        
+        # Calculate random change for demo purposes
+        price_change = (np.random.random() - 0.5) * 3
+        
+        if is_live:
+            live_data_count += 1
+        
+        crypto_data.append({
+            "name": symbol,
+            "symbol": symbol,
+            "price": current_price,
+            "change": price_change,
+            "is_live": is_live
+        })
+    
+    return crypto_data, live_data_count
+
+# Sidebar navigation
 with st.sidebar:
     st.title("TradeVision")
-    st.markdown("---")
-    
-    # API Key Testing Section
-    st.subheader("API Key Status")
-    
-    valid_keys = []
-    for i, key in enumerate(ALPHA_VANTAGE_KEYS):
-        # Display only first 5 and last 4 characters for security
-        display_key = f"{key[:5]}...{key[-4:]}" if len(key) > 9 else key
-        
-        if st.button(f"Test Key {i+1}: {display_key}", key=f"test_key_{i}"):
-            with st.spinner(f"Testing key {i+1}..."):
-                is_valid, message = test_alpha_vantage_key(key)
-                status_class = "key-valid" if is_valid else "key-invalid"
-                st.markdown(f'<div class="key-status {status_class}">{message}</div>', unsafe_allow_html=True)
-                
-                if is_valid:
-                    valid_keys.append(key)
-                    st.session_state.valid_api_key = key
-                    st.success(f"Using key {i+1} for data fetching!")
-    
-    # If we have valid keys, let user choose which one to use
-    if valid_keys:
-        st.markdown("---")
-        selected_key = st.selectbox("Select API key to use:", valid_keys)
-        st.session_state.selected_api_key = selected_key
-    
     st.markdown("---")
     
     menu_options = [
@@ -263,6 +206,13 @@ with st.sidebar:
     st.write("Buying Power: **$100,000.00**")
     st.write("Cash: **$25,000.00**")
     st.write("Portfolio Value: **$42,137.89**")
+    
+    # Data status
+    st.markdown("---")
+    st.subheader("Data Status")
+    st.markdown('<div class="data-status status-success">Using Yahoo Finance API</div>', unsafe_allow_html=True)
+    st.markdown('<div class="data-status status-success">No API key required</div>', unsafe_allow_html=True)
+    st.markdown('<div class="data-status status-success">Real-time market data</div>', unsafe_allow_html=True)
 
 # Header
 col1, col2, col3 = st.columns([2, 3, 1])
@@ -274,18 +224,11 @@ with col3:
     if st.button("Register", key="register"):
         st.session_state.auth = True
 
-# Get live data using the selected API key
-api_key = st.session_state.get('selected_api_key', None)
-
-if api_key:
-    crypto_data = get_crypto_data(api_key)
-    stock_data = get_stock_data(api_key)
-    st.sidebar.success(f"Using API key: {api_key[:5]}...{api_key[-4:]}")
-else:
-    # Use demo data if no API key is selected
-    crypto_data = get_crypto_data(None)
-    stock_data = get_stock_data(None)
-    st.sidebar.warning("Using demo data - test and select an API key above")
+# Get live data
+crypto_data, crypto_live_count = get_crypto_data()
+stock_data, stock_live_count = get_stock_data()
+total_live_data = crypto_live_count + stock_live_count
+total_assets = len(crypto_data) + len(stock_data)
 
 # Stats cards
 st.markdown("---")
@@ -302,9 +245,17 @@ with col2:
     change_icon = "▲" if daily_change >= 0 else "▼"
     st.markdown(f'<div class="stat-card"><h3><span class="{change_color}">{change_icon} {abs(daily_change):.2f}%</span></h3><p>24h Change</p></div>', unsafe_allow_html=True)
 with col3:
-    st.markdown(f'<div class="stat-card"><h3>{len(crypto_data) + len(stock_data)}</h3><p>Assets Tracked</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-card"><h3>{total_assets}</h3><p>Assets Tracked</p></div>', unsafe_allow_html=True)
 with col4:
-    st.markdown('<div class="stat-card"><h3>12</h3><p>AI Artworks</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-card"><h3>{total_live_data}/{total_assets}</h3><p>Live Data Sources</p></div>', unsafe_allow_html=True)
+
+# Data status indicator
+if total_live_data == total_assets:
+    st.success("✅ All data is live from Yahoo Finance")
+elif total_live_data > 0:
+    st.warning(f"⚠️ {total_live_data}/{total_assets} assets using live data (some using demo data)")
+else:
+    st.error("❌ Using demo data - check internet connection")
 
 # Main content
 st.markdown("---")
@@ -319,6 +270,7 @@ with col1:
     for crypto in crypto_data:
         change_class = "price-up" if crypto["change"] >= 0 else "price-down"
         change_icon = "▲" if crypto["change"] >= 0 else "▼"
+        live_indicator = "✅" if crypto["is_live"] else "📊"
         
         st.markdown(f"""
         <div class="crypto-item">
@@ -329,7 +281,7 @@ with col1:
                         {crypto['symbol'][0]}
                     </div>
                     <div>
-                        <div><strong>{crypto['name']}</strong></div>
+                        <div><strong>{crypto['name']}</strong> {live_indicator}</div>
                         <div>{crypto['symbol']}</div>
                     </div>
                 </div>
@@ -351,6 +303,7 @@ with col1:
     for stock in stock_data:
         change_class = "price-up" if stock["change"] >= 0 else "price-down"
         change_icon = "▲" if stock["change"] >= 0 else "▼"
+        live_indicator = "✅" if stock["is_live"] else "📊"
         
         st.markdown(f"""
         <div class="crypto-item">
@@ -361,7 +314,7 @@ with col1:
                         {stock['symbol'][0]}
                     </div>
                     <div>
-                        <div><strong>{stock['name']}</strong></div>
+                        <div><strong>{stock['name']}</strong> {live_indicator}</div>
                         <div>{stock['symbol']}</div>
                     </div>
                 </div>
@@ -380,9 +333,9 @@ with col2:
         asset_type = st.selectbox("Asset Type", ["Crypto", "Stocks"])
         
         if asset_type == "Crypto":
-            asset = st.selectbox("Asset", ["BTC/USD", "ETH/USD", "ADA/USD", "SOL/USD"])
+            asset = st.selectbox("Asset", ["BTC/USD", "ETH/USD", "ADA/USD", "SOL/USD", "DOGE/USD"])
         else:
-            asset = st.selectbox("Asset", ["AAPL", "TSLA", "NVDA", "SPY"])
+            asset = st.selectbox("Asset", ["AAPL", "TSLA", "NVDA", "SPY", "MSFT", "GOOGL"])
             
         amount = st.number_input("Amount ($)", min_value=0.0, value=100.0, step=10.0)
         order_type = st.selectbox("Order Type", ["Market", "Limit", "Stop Loss"])
@@ -435,8 +388,11 @@ st.markdown("<p style='text-align: center; color: #94a3b8;'>This is a demonstrat
 if st.button("Refresh Data"):
     st.rerun()
 
-# Display API key status
-if api_key:
-    st.sidebar.success("Alpha Vantage API connected with real data!")
-else:
-    st.sidebar.warning("Using demo data - test API keys in sidebar")
+# Data source info
+st.sidebar.markdown("---")
+st.sidebar.info("""
+**Data Source:** Yahoo Finance  
+**No API Key Required**  
+**Rate Limits:** None (within reasonable use)  
+**Data Delay:** Real-time (1-2 minutes)
+""")
